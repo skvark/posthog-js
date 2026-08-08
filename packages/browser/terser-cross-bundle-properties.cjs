@@ -24,6 +24,7 @@ const knownNonAbiOverlaps = [
     '_flush',
     '_instance',
     '_is_bot',
+    '_lastRefreshAt',
     '_loadRemoteConfigJSON',
     '_loadRemoteConfigJs',
     '_loadScript',
@@ -34,8 +35,11 @@ const knownNonAbiOverlaps = [
     '_persistence',
     '_queue',
     '_refreshInterval',
+    '_refreshIntervalMs',
     '_runBeforeSend',
     '_startRefreshInterval',
+    '_startVisibilityRefresh',
+    '_visibilityChangeListener',
 ]
 
 module.exports = {
