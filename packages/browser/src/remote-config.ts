@@ -90,7 +90,7 @@ export class RemoteConfigLoader {
             this._refreshInterval = undefined
         }
         if (this._visibilityChangeListener) {
-            document?.removeEventListener(DOM_EVENT_VISIBILITYCHANGE, this._visibilityChangeListener)
+            document?.removeEventListener?.(DOM_EVENT_VISIBILITYCHANGE, this._visibilityChangeListener)
             this._visibilityChangeListener = undefined
         }
     }

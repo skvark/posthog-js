@@ -1,6 +1,5 @@
 ---
 'posthog-js': patch
-'@posthog/types': patch
 ---
 
 fix(browser): refresh feature flags when a hidden tab becomes visible again
