@@ -191,8 +191,9 @@ describe('posthog core', () => {
                 }
                 expect(beforeSendMock).toHaveBeenCalledTimes(1)
                 expect(beforeSendMock.mock.calls[0][0].event).toBe('$$client_ingestion_warning')
-                expect(console.error).toHaveBeenCalledTimes(50)
-                expect(console.error).toHaveBeenCalledWith(
+                // The drop-path log must never touch console.error. console.error autocapture wraps
+                // it, so logging there would re-enter capture, get rate limited again, and loop.
+                expect(console.error).not.toHaveBeenCalledWith(
                     '[PostHog.js]',
                     'This capture call is ignored due to client rate limiting.'
                 )

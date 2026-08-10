@@ -116,5 +116,20 @@ describe('error wrapping functions', () => {
             expect(original).toHaveBeenCalledWith('boom')
             expect(captureFn).toHaveBeenCalled()
         })
+
+        it('does not capture our own prefixed logger output but still logs it', () => {
+            const con = console as any
+            const original = jest.fn()
+            con.error = original
+            unwrap = wrapConsoleError(captureFn)
+
+            con.error('[PostHog.js]', 'This capture call is ignored due to client rate limiting.')
+
+            expect(original).toHaveBeenCalledWith(
+                '[PostHog.js]',
+                'This capture call is ignored due to client rate limiting.'
+            )
+            expect(captureFn).not.toHaveBeenCalled()
+        })
     })
 })

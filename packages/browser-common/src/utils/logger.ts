@@ -72,6 +72,9 @@ const _createLogger = (prefix: string, { debugEnabled }: CreateLoggerOptions = {
     return logger
 }
 
-export const logger = _createLogger('[PostHog.js]')
+// Every logger prefix starts with this string. Console autocapture uses it to skip our own output.
+export const LOGGER_PREFIX = '[PostHog.js]'
+
+export const logger = _createLogger(LOGGER_PREFIX)
 
 export const createLogger = logger.createLogger

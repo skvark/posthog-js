@@ -1398,7 +1398,10 @@ export class PostHog implements PostHogInterface {
             : undefined
 
         if (clientRateLimitContext?.isRateLimited) {
-            logger.critical('This capture call is ignored due to client rate limiting.')
+            // Log through `warn` (console.warn), not `critical` (console.error). Console error
+            // autocapture wraps console.error, so a `critical` here would re-enter capture, get
+            // rate limited again, and loop -- exactly when the client is already over budget.
+            logger.warn('This capture call is ignored due to client rate limiting.')
             return
         }
 

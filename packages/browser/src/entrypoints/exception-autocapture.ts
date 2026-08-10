@@ -1,7 +1,7 @@
 import { window } from '@posthog/browser-common/utils/globals'
 import { assignableWindow } from '../utils/globals'
 import { ErrorEventArgs } from '../types'
-import { createLogger } from '@posthog/browser-common/utils/logger'
+import { createLogger, LOGGER_PREFIX } from '@posthog/browser-common/utils/logger'
 import { isFunction, isString, type ErrorTracking } from '@posthog/core'
 import { buildErrorPropertiesBuilder } from '../posthog-exceptions'
 
@@ -77,6 +77,14 @@ const wrapConsoleError = (captureFn: (props: ErrorTracking.ErrorProperties) => v
     const originalConsoleError = con.error
 
     con.error = function (...args: any[]): void {
+        // Never capture our own logger output. Otherwise a PostHog error log re-enters capture,
+        // which can log again and loop. This backs up the fix at the rate-limit drop site.
+        if (isString(args[0]) && args[0].startsWith(LOGGER_PREFIX)) {
+            if (isFunction(originalConsoleError)) {
+                originalConsoleError(...args)
+            }
+            return
+        }
         let event
         if (args.length == 1) {
             event = args[0]
