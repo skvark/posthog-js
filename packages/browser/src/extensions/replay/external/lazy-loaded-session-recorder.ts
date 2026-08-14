@@ -69,6 +69,7 @@ import {
 } from '../../../constants'
 import { PostHog } from '../../../posthog-core'
 import {
+    CaptureResult,
     NetworkRecordOptions,
     PerformanceCaptureConfig,
     Properties,
@@ -1167,13 +1168,24 @@ export class LazyLoadedSessionRecording implements LazyLoadedSessionRecordingInt
         // Let the strategy configure itself
         this._strategy.onRemoteConfig(config)
 
-        // Setup event trigger listeners via strategy
+        // Setup event trigger listeners via strategy. The strategy's callback is stashed so
+        // that events captured before this point can be replayed through it at the end of start().
+        let eventTriggerCallback: ((event: CaptureResult) => void) | undefined
         this._removeEventTriggerCaptureHook?.()
         this._removeEventTriggerCaptureHook = this._strategy.setupEventTriggerListeners(
-            this._instance.on.bind(this._instance, 'eventCaptured'),
+            (callback) => {
+                eventTriggerCallback = callback
+                return this._instance.on('eventCaptured', callback)
+            },
             this.sessionId,
             (triggerType, matchDetail) => this._activateTrigger(triggerType, matchDetail)
         )
+
+        // consume immediately: the live listener above now sees everything, and stopping the
+        // buffer here keeps captures made later in start() (e.g. a $snapshot from an override)
+        // out of the replay path. The replay itself waits until the recorder is running below.
+        // Optional call: this chunk can run against an older bundled core.
+        const preStartEvents = this._instance.sessionRecording?.consumeEventsCapturedBeforeRecorderStarted?.() ?? []
 
         this._checkOverride(
             SESSION_RECORDING_OVERRIDE_SAMPLING,
@@ -1278,6 +1290,16 @@ export class LazyLoadedSessionRecording implements LazyLoadedSessionRecordingInt
 
         if (this.status === ACTIVE) {
             this._reportStarted(startReason || 'recording_initialized')
+        }
+
+        // events captured while this recorder chunk was loading never reached the trigger
+        // listener registered above, so an event trigger on e.g. the initial $pageview could
+        // otherwise never match on the first page of a pageload. Replay them through the
+        // matchers now that the recorder is running, as if they had arrived just after start.
+        if (eventTriggerCallback) {
+            for (const event of preStartEvents) {
+                eventTriggerCallback(event)
+            }
         }
     }
 
