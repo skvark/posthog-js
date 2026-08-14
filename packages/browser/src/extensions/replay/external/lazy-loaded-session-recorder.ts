@@ -1168,8 +1168,7 @@ export class LazyLoadedSessionRecording implements LazyLoadedSessionRecordingInt
         // Let the strategy configure itself
         this._strategy.onRemoteConfig(config)
 
-        // Setup event trigger listeners via strategy. The strategy's callback is stashed so
-        // that events captured before this point can be replayed through it at the end of start().
+        // Setup event trigger listeners via strategy, stashing the callback so pre-start events can be replayed through it
         let eventTriggerCallback: ((event: CaptureResult) => void) | undefined
         this._removeEventTriggerCaptureHook?.()
         this._removeEventTriggerCaptureHook = this._strategy.setupEventTriggerListeners(
@@ -1181,10 +1180,8 @@ export class LazyLoadedSessionRecording implements LazyLoadedSessionRecordingInt
             (triggerType, matchDetail) => this._activateTrigger(triggerType, matchDetail)
         )
 
-        // consume immediately: the live listener above now sees everything, and stopping the
-        // buffer here keeps captures made later in start() (e.g. a $snapshot from an override)
-        // out of the replay path. The replay itself waits until the recorder is running below.
-        // Optional call: this chunk can run against an older bundled core.
+        // consume as soon as the live listener is registered, so captures made later in start() (e.g. a
+        // $snapshot from an override) stay out of the replay; optional call, older bundled cores lack it
         const preStartEvents = this._instance.sessionRecording?.consumeEventsCapturedBeforeRecorderStarted?.() ?? []
 
         this._checkOverride(
@@ -1292,10 +1289,8 @@ export class LazyLoadedSessionRecording implements LazyLoadedSessionRecordingInt
             this._reportStarted(startReason || 'recording_initialized')
         }
 
-        // events captured while this recorder chunk was loading never reached the trigger
-        // listener registered above, so an event trigger on e.g. the initial $pageview could
-        // otherwise never match on the first page of a pageload. Replay them through the
-        // matchers now that the recorder is running, as if they had arrived just after start.
+        // events captured while this chunk was loading never reached the live listener above, so a trigger
+        // on the initial $pageview could otherwise never match; replay them now that the recorder is running
         if (eventTriggerCallback) {
             for (const event of preStartEvents) {
                 eventTriggerCallback(event)

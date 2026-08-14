@@ -70,10 +70,8 @@ export class SessionRecording implements Extension {
     private _sessionRecordingDisposed = false
     private _documentWasEverVisible = hasDocumentEverBeenVisible()
 
-    // event triggers are matched by the lazy-loaded recorder, which only registers its
-    // listener once the recorder script has loaded. Events captured before then (most
-    // importantly the initial $pageview) are buffered here so the recorder can replay
-    // them through trigger matching when it starts.
+    // the lazy recorder only registers its trigger listener once its script has loaded; events
+    // captured before then (like the initial $pageview) are buffered for replay on start
     private _eventsCapturedBeforeRecorderStarted: CaptureResult[] = []
     private _removePreStartEventBufferHook: (() => void) | undefined
 
@@ -125,16 +123,11 @@ export class SessionRecording implements Extension {
         this.stopRecording()
     }
 
-    /**
-     * called by the lazy-loaded recorder once it has registered its event trigger listeners,
-     * so events captured before then can be replayed through trigger matching
-     */
+    /** called by the lazy-loaded recorder on start, so pre-start events can be replayed through trigger matching */
     public consumeEventsCapturedBeforeRecorderStarted(): CaptureResult[] {
         const events = this._eventsCapturedBeforeRecorderStarted
         this._stopBufferingPreStartEvents()
-        // a session rotation or reset while the recorder chunk loaded means earlier events belong
-        // to a previous session; replaying those could activate recording for a session that
-        // never contained the trigger
+        // a rotation or reset during the chunk load must not let a previous session's events activate this one
         const sessionId = this._instance.sessionManager?.checkAndGetSessionAndWindowId(true)?.sessionId
         return events.filter((event) => event.properties?.$session_id === sessionId)
     }
@@ -185,15 +178,13 @@ export class SessionRecording implements Extension {
         // Thus instead of MutationObserver, we look for this function and block recording if it's undefined.
         const canRunReplay = !isUndefined(Object.assign) && !isUndefined(Array.from)
         if (this._isRecordingEnabled && canRunReplay) {
-            // a config change can re-enable recording after a disabled state tore the buffer down;
-            // resume buffering so events captured during this lazy load reach trigger matching
+            // re-arm after a disabled-state teardown so this load window is covered too
             this._startBufferingPreStartEvents()
             this._lazyLoadAndStart(startReason)
             logger.info('starting')
         } else {
             this._recordingStatus = DISABLED
-            // only a definitive "off" releases the buffer: before the first remote config arrives
-            // recording is merely pending, and the buffer exists exactly for that window
+            // before the first remote config arrives recording is merely pending, so only a definitive "off" releases the buffer
             const clientDisabled = this._config.disable_session_recording || this._instance.consent.isOptedOut()
             const serverDecided = !isUndefined(this._instance.get_property(SESSION_RECORDING_REMOTE_CONFIG))
             if (clientDisabled || serverDecided) {
@@ -229,14 +220,12 @@ export class SessionRecording implements Extension {
         ) {
             const loadExternalDependency = assignableWindow.__PosthogExtensions__?.loadExternalDependency
             if (!loadExternalDependency) {
-                // a no-external bundle without the recorder imported: nothing can ever start,
-                // so release the buffered events
+                // no loader and no recorder imported: recording can never start
                 this._stopBufferingPreStartEvents()
                 return
             }
             loadExternalDependency(this._instance, this._scriptName, (err) => {
                 if (err) {
-                    // the recorder will not start on this page, so release the buffered events
                     this._stopBufferingPreStartEvents()
                     return logger.error('could not load recorder', err)
                 }
@@ -348,8 +337,7 @@ export class SessionRecording implements Extension {
             }
             this.startIfEnabledOrStop()
             if (!this._isRecordingEnabled) {
-                // no fresh config arrived and nothing persisted can start the recorder,
-                // so nothing will consume the buffer until a page reload
+                // nothing persisted can start the recorder, so nothing will consume the buffer before reload
                 this._stopBufferingPreStartEvents()
             }
             return
@@ -412,7 +400,6 @@ export class SessionRecording implements Extension {
             logger.warn(
                 'Called on script loaded before session recording is available. This can be caused by adblockers.'
             )
-            // the recorder will not start on this page, so release the buffered events
             this._stopBufferingPreStartEvents()
             this._instance.register_for_session({
                 [SDK_DEBUG_RECORDING_SCRIPT_NOT_LOADED]: true,
@@ -448,7 +435,7 @@ export class SessionRecording implements Extension {
         this._recordingStatus = LAZY_LOADING
         this._lazyLoadedSessionRecording.setDocumentWasEverVisible?.(this._documentWasEverVisible)
         this._lazyLoadedSessionRecording.start(startReason)
-        // an older recorder chunk may never consume the buffer; recording has started, so it is no longer needed
+        // an older recorder chunk may never consume the buffer
         this._stopBufferingPreStartEvents()
     }
 
