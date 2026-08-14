@@ -71,8 +71,9 @@ export class SessionRecording implements Extension {
     private _documentWasEverVisible = hasDocumentEverBeenVisible()
 
     // the lazy recorder only registers its trigger listener once its script has loaded; events
-    // captured before then (like the initial $pageview) are buffered for replay on start
-    private _eventsCapturedBeforeRecorderStarted: CaptureResult[] = []
+    // captured before then (like the initial $pageview) are buffered for replay on start.
+    // the session id is stamped at capture time because before_send may rewrite $session_id
+    private _eventsCapturedBeforeRecorderStarted: { event: CaptureResult; sessionId: string | undefined }[] = []
     private _removePreStartEventBufferHook: (() => void) | undefined
 
     private _onVisibilityChange = (): void => {
@@ -125,11 +126,11 @@ export class SessionRecording implements Extension {
 
     /** called by the lazy-loaded recorder on start, so pre-start events can be replayed through trigger matching */
     public consumeEventsCapturedBeforeRecorderStarted(): CaptureResult[] {
-        const events = this._eventsCapturedBeforeRecorderStarted
+        const buffered = this._eventsCapturedBeforeRecorderStarted
         this._stopBufferingPreStartEvents()
         // a rotation or reset during the chunk load must not let a previous session's events activate this one
         const sessionId = this._instance.sessionManager?.checkAndGetSessionAndWindowId(true)?.sessionId
-        return events.filter((event) => event.properties?.$session_id === sessionId)
+        return buffered.filter((entry) => entry.sessionId === sessionId).map((entry) => entry.event)
     }
 
     private _startBufferingPreStartEvents(): void {
@@ -142,7 +143,8 @@ export class SessionRecording implements Extension {
                 return
             }
             if (this._eventsCapturedBeforeRecorderStarted.length < PRE_START_EVENT_BUFFER_LIMIT) {
-                this._eventsCapturedBeforeRecorderStarted.push(event)
+                const sessionId = this._instance.sessionManager?.checkAndGetSessionAndWindowId(true)?.sessionId
+                this._eventsCapturedBeforeRecorderStarted.push({ event, sessionId })
             }
         })
     }

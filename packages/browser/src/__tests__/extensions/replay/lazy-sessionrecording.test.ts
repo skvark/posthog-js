@@ -4197,15 +4197,35 @@ describe('Lazy SessionRecording', () => {
                     })
                 )
 
-                // a reset or rotation while the chunk loads leaves events stamped with the old session
-                simpleEventEmitter.emit('eventCaptured', {
-                    event: '$pageview',
-                    properties: { $session_id: 'a-previous-session-id' },
-                })
+                simpleEventEmitter.emit('eventCaptured', { event: '$pageview', properties: currentSessionProperties() })
+
+                // a reset while the chunk loads means the buffered event belongs to the old session
+                sessionIdGeneratorMock.mockImplementation(() => 'post-reset-session-id')
+                sessionManager.resetSessionId()
 
                 completeScriptLoad()
 
                 expect(sessionRecording.status).toBe('buffering')
+            })
+
+            it('activates from a pre-load event even when before_send removed $session_id', () => {
+                const completeScriptLoad = deferScriptLoad()
+
+                sessionRecording.onRemoteConfig(
+                    makeFlagsResponse({
+                        sessionRecording: {
+                            endpoint: '/s/',
+                            eventTriggers: ['$pageview'],
+                        },
+                    })
+                )
+
+                // eventCaptured fires after before_send, which may legally strip or rewrite $session_id
+                simpleEventEmitter.emit('eventCaptured', { event: '$pageview', properties: {} })
+
+                completeScriptLoad()
+
+                expect(sessionRecording.status).toBe('active')
             })
 
             it('stops buffering once the recorder has started', () => {
