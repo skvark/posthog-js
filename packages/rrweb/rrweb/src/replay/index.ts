@@ -2373,18 +2373,41 @@ export class Replayer {
     const adoptStyleSheets = (targetHost: Node, styleIds: number[]) => {
       // a newer AdoptedStyleSheet event for this host supersedes this one
       if (this.adoptedStyleSheetTokens.get(data.id) !== token) return;
+      // A seek can rebuild the replayer iframe while retries still hold sheets
+      // built against the old document. Safari rejects a sheet whose document
+      // does not match the adopting one, so re-home each such sheet first.
+      const adoptWindow =
+        targetHost.nodeName === '#document'
+          ? (targetHost as Document).defaultView
+          : targetHost.ownerDocument?.defaultView || null;
       const stylesToAdopt = styleIds
-        .map((styleId) => this.styleMirror.getStyle(styleId))
+        .map((styleId) => {
+          const style = this.styleMirror.getStyle(styleId);
+          if (!style) return null;
+          if (adoptWindow && !(style instanceof adoptWindow.CSSStyleSheet)) {
+            const rehomed = this.rehomeStyleSheet(style, adoptWindow);
+            if (rehomed) {
+              this.styleMirror.add(rehomed, styleId);
+              return rehomed;
+            }
+          }
+          return style;
+        })
         .filter((style) => style !== null) as CSSStyleSheet[];
       let adopted = false;
-      if (hasShadowRoot(targetHost)) {
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-        (targetHost as HTMLElement).shadowRoot!.adoptedStyleSheets =
-          stylesToAdopt;
-        adopted = true;
-      } else if (targetHost.nodeName === '#document') {
-        (targetHost as Document).adoptedStyleSheets = stylesToAdopt;
-        adopted = true;
+      try {
+        if (hasShadowRoot(targetHost)) {
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+          (targetHost as HTMLElement).shadowRoot!.adoptedStyleSheets =
+            stylesToAdopt;
+          adopted = true;
+        } else if (targetHost.nodeName === '#document') {
+          (targetHost as Document).adoptedStyleSheets = stylesToAdopt;
+          adopted = true;
+        }
+      } catch (e) {
+        // Adoption can still be rejected (e.g. a Safari cross-document sheet).
+        // Degrade to unstyled shadow content rather than failing playback.
       }
       // remember hosts that can't adopt yet so applyMutation can finish the
       // adoption when it attaches the shadow root, independent of the
@@ -2410,6 +2433,24 @@ export class Replayer {
       }
     };
     adoptStyleSheets(targetHost, data.styleIds);
+  }
+
+  // Rebuild a constructed stylesheet against targetWindow so its owning
+  // document matches the document adopting it. Returns null if the copy fails.
+  private rehomeStyleSheet(
+    source: CSSStyleSheet,
+    targetWindow: IWindow,
+  ): CSSStyleSheet | null {
+    try {
+      const sheet = new targetWindow.CSSStyleSheet();
+      const cssText = Array.from(source.cssRules)
+        .map((rule) => rule.cssText)
+        .join('');
+      sheet.replaceSync(cssText);
+      return sheet;
+    } catch (e) {
+      return null;
+    }
   }
 
   private legacy_resolveMissingNode(
